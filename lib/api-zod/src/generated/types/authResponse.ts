@@ -5,8 +5,10 @@
  * SyncSpace API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { User } from './user';
 
-export interface HealthStatus {
-  status: string;
-  uptime: number;
+export interface AuthResponse {
+  success: boolean;
+  user: User;
+  token: string;
 }

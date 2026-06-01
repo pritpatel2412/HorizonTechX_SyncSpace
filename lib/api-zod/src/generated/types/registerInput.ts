@@ -6,7 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface HealthStatus {
-  status: string;
-  uptime: number;
+export interface RegisterInput {
+  /** @minLength 1 */
+  name: string;
+  email: string;
+  /** @minLength 6 */
+  password: string;
 }

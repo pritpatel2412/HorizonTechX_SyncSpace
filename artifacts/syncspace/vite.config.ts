@@ -28,6 +28,10 @@ if (!basePath) {
 
 export default defineConfig({
   base: basePath,
+  define: {
+    global: "globalThis",
+    "process.env": {},
+  },
   plugins: [
     react(),
     tailwindcss(),
@@ -50,8 +54,13 @@ export default defineConfig({
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
       "@assets": path.resolve(import.meta.dirname, "..", "..", "attached_assets"),
+      events: "events",
+      util: "util",
     },
     dedupe: ["react", "react-dom"],
+  },
+  optimizeDeps: {
+    include: ["simple-peer"],
   },
   root: path.resolve(import.meta.dirname),
   build: {

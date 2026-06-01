@@ -6,7 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface HealthStatus {
-  status: string;
-  uptime: number;
+export interface FileUploadInput {
+  roomId?: string;
 }
