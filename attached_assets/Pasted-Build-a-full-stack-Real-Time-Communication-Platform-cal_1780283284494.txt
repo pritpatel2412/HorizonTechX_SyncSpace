@@ -1,0 +1,226 @@
+Build a full-stack Real-Time Communication Platform called "SyncSpace" — a professional video conferencing and collaboration app. This must be a completely working, end-to-end application with no placeholder code. Use the following exact tech stack and instructions.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PROJECT STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+/client        → React 18 + Vite frontend
+/server        → Node.js + Express backend
+/server/socket → Socket.io real-time layer
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TECH STACK (EXACT — DO NOT CHANGE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Frontend:
+- React 18 with Vite
+- Tailwind CSS v3 for styling
+- shadcn/ui components (Button, Dialog, Input, Avatar, Badge, Tooltip)
+- Framer Motion for animations
+- simple-peer (WebRTC wrapper for peer-to-peer video)
+- socket.io-client
+- fabric.js for whiteboard canvas
+- lucide-react icons
+- react-router-dom v6
+- zustand for state management
+- react-hot-toast for notifications
+
+Backend:
+- Node.js with Express
+- socket.io v4 (WebRTC signaling + real-time events)
+- jsonwebtoken (JWT auth)
+- bcryptjs (password hashing)
+- multer + uuid (file uploads)
+- cors, helmet, express-rate-limit (security)
+- dotenv
+- lowdb v3 OR nedb (lightweight file-based DB — no MongoDB or PostgreSQL required in Replit)
+
+AI Feature (FREE — no paid API keys):
+- Use Groq SDK: npm install groq-sdk
+- Model: llama3-8b-8192 (free tier, fast)
+- GROQ_API_KEY must be set in Replit Secrets
+- AI assistant for meeting summaries and smart suggestions
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FEATURES TO BUILD (ALL REQUIRED)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. AUTHENTICATION
+- /register and /login pages with animated forms
+- JWT stored in httpOnly cookie
+- Passwords hashed with bcrypt (salt rounds: 12)
+- Protected routes — redirect to /login if not authenticated
+- User profile: name, email, avatar initials, status
+
+2. DASHBOARD (/)
+- Sidebar with: Home, Meetings, Files, Whiteboard, Settings
+- "New Meeting" button → creates room with unique 8-char ID (nanoid)
+- "Join Meeting" input → enter room code
+- Recent meetings list
+- Online users indicator
+- Clean card-based layout with dark/light mode toggle
+
+3. VIDEO MEETING ROOM (/room/:roomId)
+- Multi-user video grid (up to 8 participants) using simple-peer + WebRTC
+- Each video tile shows: name badge, mute/video status indicators, speaking animation (pulsing ring)
+- Controls bar (bottom center, floating pill):
+  • Mute / Unmute mic (with mic level animation)
+  • Camera on/off
+  • Screen share (getDisplayMedia API)
+  • Raise hand emoji reaction
+  • Chat sidebar toggle
+  • Whiteboard toggle
+  • Leave call (red button)
+- Participant sidebar: list of all users, host crown icon, mute all button (host only)
+- Meeting timer shown in header
+- Room link copy button
+
+4. IN-MEETING CHAT
+- Real-time chat via Socket.io inside the room
+- Emoji picker (simple grid of 20 emojis)
+- File sharing in chat: click attachment icon → select file → upload to /api/files → share link in chat
+- Messages include: avatar, name, timestamp, read receipts
+
+5. SCREEN SHARING
+- "Share Screen" button triggers getDisplayMedia()
+- Shared screen appears as a highlighted large tile in the grid
+- "Stop sharing" overlay button on the shared tile
+- Only one person can share at a time; others see a notification if someone else is already sharing
+
+6. FILE SHARING
+- Files tab in dashboard: upload files, see shared files
+- In-meeting: attach files in chat (max 10MB, types: pdf, png, jpg, docx, xlsx, zip)
+- Files stored in /server/uploads/ with UUID filenames
+- Download link sent via chat message
+- File list per room stored in socket room state
+
+7. COLLABORATIVE WHITEBOARD (/whiteboard OR as panel inside meeting)
+- Full fabric.js canvas
+- Tools: pen (freehand), rectangle, circle, line, text, eraser, color picker, stroke size
+- Real-time sync: every canvas:modified event is emitted via socket to all room members
+- Toolbar at top: tool icons, color swatches, undo/redo, clear, download as PNG
+- Works standalone at /whiteboard/:roomId or toggled as a panel inside the meeting
+
+8. AI ASSISTANT (Groq — FREE)
+- "AI Assistant" button in meeting toolbar and dashboard
+- Meeting Summary: after meeting ends, AI summarizes the chat transcript (POST /api/ai/summarize)
+- Smart Suggestions: ask the AI a question in a sidebar input → streamed response from Groq llama3-8b-8192
+- Action Items: AI extracts TODO items from chat messages
+- All Groq calls go through the Express backend to protect the API key
+
+9. SECURITY
+- All API routes protected by verifyToken middleware
+- helmet() for HTTP headers
+- express-rate-limit: max 100 requests per 15 minutes per IP
+- File upload validation: check MIME type and file size server-side
+- CORS configured to allow only frontend origin
+- Socket.io: verify JWT token in handshake auth before allowing connection
+- Input sanitization on all user inputs
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+UI/UX DESIGN SYSTEM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Color palette: primary #6366F1 (indigo), dark bg #0F1117, surface #1A1D2E, surface-2 #252840, text #E2E8F0, muted #64748B, success #10B981, danger #EF4444
+- Font: Inter (import from Google Fonts)
+- All components have smooth transitions (transition-all duration-200)
+- Meeting room has full dark theme always
+- Dashboard supports dark/light mode
+- Video tiles: rounded-2xl, subtle border, name badge at bottom-left with semi-transparent blur background
+- Controls bar: floating pill at bottom, blur backdrop, backdrop-filter: blur(20px)
+- Sidebar: 260px wide, icons + labels, active state with indigo accent
+- Animations: page transitions with Framer Motion fadeIn, meeting join with scale animation
+- Empty states: illustrated with SVG icon + descriptive text + CTA button
+- Loading skeletons for all async content
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SOCKET.IO EVENTS (implement all of these)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Client → Server:
+- join-room (roomId, userId, userName)
+- leave-room (roomId)
+- send-signal (to, signal, from)
+- return-signal (to, signal, callerID)
+- chat-message (roomId, message, userName, timestamp)
+- whiteboard-update (roomId, canvasJSON)
+- hand-raise (roomId, userId)
+- screen-share-start (roomId, userId)
+- screen-share-stop (roomId)
+
+Server → Client:
+- all-users (users[] in room)
+- user-joined (signal, callerID, userName)
+- receiving-returned-signal (id, signal)
+- user-left (userId)
+- receive-message (message object)
+- whiteboard-state (canvasJSON)
+- hand-raised (userId, userName)
+- screen-sharing (userId, userName)
+- screen-share-ended ()
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+API ROUTES (Express)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POST   /api/auth/register
+POST   /api/auth/login
+POST   /api/auth/logout
+GET    /api/auth/me           (protected)
+
+POST   /api/rooms/create      (protected) → returns { roomId }
+GET    /api/rooms/:roomId     (protected) → room info + participants
+GET    /api/rooms/history     (protected) → user's past meetings
+
+POST   /api/files/upload      (protected, multer)
+GET    /api/files/:fileId     (protected) → stream file
+
+POST   /api/ai/summarize      (protected) → Groq summary of chat[]
+POST   /api/ai/ask            (protected) → Groq freeform question
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FILE: .env (create this)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PORT=5000
+JWT_SECRET=syncspace_jwt_secret_change_in_prod
+GROQ_API_KEY=your_groq_api_key_here
+CLIENT_URL=http://localhost:5173
+NODE_ENV=development
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PACKAGE.JSON SCRIPTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Root package.json:
+{
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd server && nodemon index.js",
+    "client": "cd client && npm run dev",
+    "install:all": "npm install && cd client && npm install && cd ../server && npm install"
+  }
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REPLIT SPECIFIC SETUP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Create a .replit file:
+  run = "npm run dev"
+  [nix]
+  channel = "stable-23_05"
+
+- Create replit.nix with nodejs_20
+- The Vite dev server proxy: in vite.config.js add:
+  server: { proxy: { '/api': 'http://localhost:5000', '/socket.io': { target: 'http://localhost:5000', ws: true } } }
+- For Replit webview, set VITE_SERVER_URL to the Replit backend URL in .env
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+IMPORTANT IMPLEMENTATION NOTES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- DO NOT use any placeholder, mock, or stub code. Every feature must be fully functional.
+- simple-peer must use the "mesh" topology for up to 8 peers (every peer connects to every other peer).
+- For each new peer joining, the existing peers initiate the offer; the new peer answers.
+- WebRTC STUN servers: use Google's free STUN: stun:stun.l.google.com:19302 and stun:stun1.l.google.com:19302
+- Whiteboard sync: debounce canvas updates by 100ms before emitting to avoid flooding
+- File upload: store metadata in the DB (filename, uploader, roomId, timestamp, uuid)
+- JWT expiry: 7 days; refresh on each authenticated request
+- All error responses: { success: false, message: "..." }
+- All success responses: { success: true, data: {...} }
+- Console.log every socket event on the server for debugging
+- Add a /health endpoint: GET /api/health → { status: "ok", uptime: process.uptime() }
+
+Start by creating the folder structure, then server/index.js, then all API routes, then socket events, then the React frontend starting with auth pages, then dashboard, then the meeting room. Build it completely — no TODO comments.
