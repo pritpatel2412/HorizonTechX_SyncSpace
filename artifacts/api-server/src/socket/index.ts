@@ -12,6 +12,7 @@ interface RoomUser {
 }
 
 const roomUsers = new Map<string, Map<string, RoomUser>>();
+const roomWhiteboards = new Map<string, string>(); // roomId → latest canvasJSON
 
 export function initSocket(httpServer: HttpServer): SocketServer {
   const io = new SocketServer(httpServer, {
@@ -65,6 +66,12 @@ export function initSocket(httpServer: HttpServer): SocketServer {
 
       socket.emit("all-users", usersInRoom);
 
+      // Replay current whiteboard state so the new joiner sees existing drawings
+      const existingCanvas = roomWhiteboards.get(roomId);
+      if (existingCanvas) {
+        socket.emit("whiteboard-state", { canvasJSON: existingCanvas });
+      }
+
       socket.to(roomId).emit("user-joined-notify", { userId, userName, socketId: socket.id });
     });
 
@@ -98,7 +105,16 @@ export function initSocket(httpServer: HttpServer): SocketServer {
     });
 
     socket.on("whiteboard-update", (data: { roomId: string; canvasJSON: string }) => {
+      roomWhiteboards.set(data.roomId, data.canvasJSON);
       socket.to(data.roomId).emit("whiteboard-state", { canvasJSON: data.canvasJSON });
+    });
+
+    // Standalone whiteboard page requests current state without triggering join-room
+    socket.on("request-whiteboard-state", (roomId: string) => {
+      const existing = roomWhiteboards.get(roomId);
+      if (existing) {
+        socket.emit("whiteboard-state", { canvasJSON: existing });
+      }
     });
 
     socket.on("hand-raise", (data: { roomId: string; userId: number; userName: string }) => {
