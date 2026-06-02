@@ -1,0 +1,1 @@
+- [Fabric.js v7 API](fabricjs-v7-api.md) — PencilBrush must be explicitly instantiated; setWidth/setHeight → setDimensions; loadFromJSON is Promise-based

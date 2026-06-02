@@ -949,8 +949,7 @@ function ControlBtn({ active, onClick, icon, label, badge, testId }: {
 type EmbedCanvas = {
   isDrawingMode: boolean;
   freeDrawingBrush: { color: string; width: number };
-  setWidth: (w: number) => void;
-  setHeight: (h: number) => void;
+  setDimensions: (dims: { width: number; height: number }) => void;
   renderAll: () => void;
   requestRenderAll: () => void;
   toJSON: () => unknown;
@@ -1022,6 +1021,8 @@ function WhiteboardEmbed({ roomId, socket }: { roomId: string; token: string; so
       const FC = fm.Canvas as unknown as new (el: HTMLCanvasElement, opts: object) => EmbedCanvas;
       canvas = new FC(el, { isDrawingMode: true, width: w, height: h, backgroundColor: EMBED_BG });
       fabricRef.current = canvas;
+      const PB = fm.PencilBrush as unknown as new (c: EmbedCanvas) => { color: string; width: number };
+      canvas.freeDrawingBrush = new PB(canvas);
       canvas.freeDrawingBrush.color = '#E2E8F0';
       canvas.freeDrawingBrush.width = 3;
 
@@ -1031,8 +1032,7 @@ function WhiteboardEmbed({ roomId, socket }: { roomId: string; token: string; so
 
       const ro = new ResizeObserver(() => {
         if (!canvas || !container) return;
-        canvas.setWidth(container.clientWidth);
-        canvas.setHeight(container.clientHeight);
+        canvas.setDimensions({ width: container.clientWidth, height: container.clientHeight });
         canvas.renderAll();
       });
       ro.observe(container);
@@ -1068,8 +1068,8 @@ function WhiteboardEmbed({ roomId, socket }: { roomId: string; token: string; so
     setTool(t);
     const canvas = fabricRef.current;
     if (!canvas) return;
-    if (t === 'pen') { canvas.isDrawingMode = true; canvas.freeDrawingBrush.color = color; canvas.freeDrawingBrush.width = stroke; }
-    else if (t === 'eraser') { canvas.isDrawingMode = true; canvas.freeDrawingBrush.color = EMBED_BG; canvas.freeDrawingBrush.width = stroke * 5; }
+    if (t === 'pen') { canvas.isDrawingMode = true; if (canvas.freeDrawingBrush) { canvas.freeDrawingBrush.color = color; canvas.freeDrawingBrush.width = stroke; } }
+    else if (t === 'eraser') { canvas.isDrawingMode = true; if (canvas.freeDrawingBrush) { canvas.freeDrawingBrush.color = EMBED_BG; canvas.freeDrawingBrush.width = stroke * 5; } }
     else { canvas.isDrawingMode = false; }
   }, [color, stroke]);
 
@@ -1077,7 +1077,7 @@ function WhiteboardEmbed({ roomId, socket }: { roomId: string; token: string; so
     setColor(c);
     const canvas = fabricRef.current;
     if (!canvas) return;
-    if (tool === 'pen') canvas.freeDrawingBrush.color = c;
+    if (tool === 'pen' && canvas.freeDrawingBrush) canvas.freeDrawingBrush.color = c;
   }, [tool]);
 
   const addShape = useCallback(async (t: EmbedTool) => {
@@ -1174,7 +1174,7 @@ function WhiteboardEmbed({ roomId, socket }: { roomId: string; token: string; so
         </div>
         <div className="w-px h-5 bg-white/10" />
         {/* Stroke */}
-        <input type="range" min={1} max={20} value={stroke} onChange={(e) => { const v = Number(e.target.value); setStroke(v); const canvas = fabricRef.current; if (canvas) canvas.freeDrawingBrush.width = tool === 'eraser' ? v * 5 : v; }} className="w-16 accent-indigo-500" />
+        <input type="range" min={1} max={20} value={stroke} onChange={(e) => { const v = Number(e.target.value); setStroke(v); const canvas = fabricRef.current; if (canvas && canvas.freeDrawingBrush) canvas.freeDrawingBrush.width = tool === 'eraser' ? v * 5 : v; }} className="w-16 accent-indigo-500" />
         <div className="w-px h-5 bg-white/10" />
         {/* Actions */}
         <div className="flex items-center gap-0.5">

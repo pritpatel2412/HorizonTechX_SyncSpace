@@ -14,8 +14,7 @@ type Tool = 'pen' | 'rect' | 'circle' | 'line' | 'text' | 'eraser';
 type FabricCanvas = {
   isDrawingMode: boolean;
   freeDrawingBrush: { color: string; width: number };
-  setWidth: (w: number) => void;
-  setHeight: (h: number) => void;
+  setDimensions: (dims: { width: number; height: number }) => void;
   renderAll: () => void;
   toJSON: () => unknown;
   toDataURL: (opts: object) => string;
@@ -115,6 +114,8 @@ export function Whiteboard() {
       });
 
       fabricRef.current = canvas;
+      const PencilBrushClass = fabricModule.PencilBrush as unknown as new (c: FabricCanvas) => { color: string; width: number };
+      canvas.freeDrawingBrush = new PencilBrushClass(canvas);
       canvas.freeDrawingBrush.color = '#E2E8F0';
       canvas.freeDrawingBrush.width = 3;
 
@@ -145,8 +146,7 @@ export function Whiteboard() {
       // Resize canvas when container changes
       const ro = new ResizeObserver(() => {
         if (!canvas || !container) return;
-        canvas.setWidth(container.clientWidth);
-        canvas.setHeight(container.clientHeight);
+        canvas.setDimensions({ width: container.clientWidth, height: container.clientHeight });
         canvas.renderAll();
       });
       ro.observe(container);
