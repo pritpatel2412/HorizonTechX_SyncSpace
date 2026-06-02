@@ -50,6 +50,15 @@ export function initSocket(httpServer: HttpServer): SocketServer {
       }
       const room = roomUsers.get(roomId)!;
 
+      // Evict any ghost socket from the same userId (navigation race condition)
+      for (const [existingSocketId, existingUser] of room.entries()) {
+        if (existingUser.userId === userId && existingSocketId !== socket.id) {
+          room.delete(existingSocketId);
+          logger.info({ evicted: existingSocketId, userId }, "evicted ghost socket");
+          break;
+        }
+      }
+
       const usersInRoom = [...room.values()];
 
       room.set(socket.id, { socketId: socket.id, userId, userName });

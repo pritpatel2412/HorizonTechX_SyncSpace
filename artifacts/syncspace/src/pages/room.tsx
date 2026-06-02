@@ -10,6 +10,8 @@ import {
   Mic, MicOff, Video, VideoOff, Monitor, MonitorOff,
   Hand, MessageSquare, Layout, PhoneOff, Copy, Users,
   Crown, Send, Paperclip, X, ChevronRight, Brain, Loader2,
+  Pen, Square, Circle, Minus, Type, Eraser,
+  Undo2, Redo2, Trash2, Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -755,68 +757,249 @@ function ControlBtn({ active, onClick, icon, label, badge, testId }: {
   );
 }
 
-function WhiteboardEmbed({ roomId, token, socket }: { roomId: string; token: string; socket: Socket | null }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const fabricRef = useRef<unknown>(null);
+type EmbedCanvas = {
+  isDrawingMode: boolean;
+  freeDrawingBrush: { color: string; width: number };
+  setWidth: (w: number) => void;
+  setHeight: (h: number) => void;
+  renderAll: () => void;
+  requestRenderAll: () => void;
+  toJSON: () => unknown;
+  toDataURL: (opts: object) => string;
+  loadFromJSON: (json: string) => Promise<void>;
+  clear: () => void;
+  set: (opts: object) => void;
+  dispose: () => void;
+  add: (...objs: unknown[]) => void;
+  remove: (...objs: unknown[]) => void;
+  on: (event: string, cb: (opts?: unknown) => void) => void;
+  off: (event: string) => void;
+  width: number;
+  height: number;
+};
+
+type EmbedTool = 'pen' | 'rect' | 'circle' | 'line' | 'text' | 'eraser';
+const EMBED_COLORS = ['#E2E8F0', '#6366F1', '#10B981', '#EF4444', '#F59E0B', '#3B82F6', '#EC4899'];
+const EMBED_BG = '#0F1117';
+
+function WhiteboardEmbed({ roomId, socket }: { roomId: string; token: string; socket: Socket | null }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasElRef = useRef<HTMLCanvasElement>(null);
+  const fabricRef = useRef<EmbedCanvas | null>(null);
   const isRemoteUpdate = useRef(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const historyRef = useRef<string[]>([]);
+  const historyIdxRef = useRef(-1);
+
+  const [tool, setTool] = useState<EmbedTool>('pen');
+  const [color, setColor] = useState('#E2E8F0');
+  const [stroke, setStroke] = useState(3);
+  const [ready, setReady] = useState(false);
+
+  const emitUpdate = useCallback((canvas: EmbedCanvas) => {
+    if (isRemoteUpdate.current || !socket) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      socket.emit('whiteboard-update', { roomId, canvasJSON: JSON.stringify(canvas.toJSON()) });
+    }, 100);
+  }, [socket, roomId]);
+
+  const saveHist = useCallback((canvas: EmbedCanvas) => {
+    const json = JSON.stringify(canvas.toJSON());
+    historyRef.current = historyRef.current.slice(0, historyIdxRef.current + 1);
+    historyRef.current.push(json);
+    historyIdxRef.current = historyRef.current.length - 1;
+  }, []);
+
+  const applyJSON = useCallback(async (canvas: EmbedCanvas, json: string) => {
+    isRemoteUpdate.current = true;
+    try { await canvas.loadFromJSON(json); canvas.renderAll(); }
+    catch { /* ignore */ }
+    finally { isRemoteUpdate.current = false; }
+  }, []);
 
   useEffect(() => {
-    let canvas: unknown;
-    const initFabric = async () => {
-      const fabricModule = await import('fabric');
-      const FabricCanvas = fabricModule.Canvas as unknown as new (el: HTMLCanvasElement, opts: object) => unknown;
-      const el = canvasRef.current;
-      if (!el) return;
-      canvas = new FabricCanvas(el, {
-        isDrawingMode: true,
-        width: el.parentElement?.clientWidth ?? 800,
-        height: el.parentElement?.clientHeight ?? 500,
-        backgroundColor: '#0F1117',
-      });
-      fabricRef.current = canvas;
+    if (!socket) return;
+    let canvas: EmbedCanvas | null = null;
 
-      let debounceTimer: ReturnType<typeof setTimeout>;
-      (canvas as { on: (event: string, cb: () => void) => void }).on('object:modified', () => {
-        if (isRemoteUpdate.current) return;
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
-          const json = JSON.stringify((canvas as { toJSON: () => unknown }).toJSON());
-          socket?.emit('whiteboard-update', { roomId, canvasJSON: json });
-        }, 100);
+    const init = async () => {
+      const fm = await import('fabric');
+      const el = canvasElRef.current;
+      const container = containerRef.current;
+      if (!el || !container) return;
+
+      const w = container.clientWidth || 900;
+      const h = container.clientHeight || 500;
+      const FC = fm.Canvas as unknown as new (el: HTMLCanvasElement, opts: object) => EmbedCanvas;
+      canvas = new FC(el, { isDrawingMode: true, width: w, height: h, backgroundColor: EMBED_BG });
+      fabricRef.current = canvas;
+      canvas.freeDrawingBrush.color = '#E2E8F0';
+      canvas.freeDrawingBrush.width = 3;
+
+      canvas.on('path:created', () => { saveHist(canvas!); emitUpdate(canvas!); });
+      canvas.on('object:modified', () => { saveHist(canvas!); emitUpdate(canvas!); });
+      canvas.on('object:added', () => { if (!isRemoteUpdate.current) emitUpdate(canvas!); });
+
+      const ro = new ResizeObserver(() => {
+        if (!canvas || !container) return;
+        canvas.setWidth(container.clientWidth);
+        canvas.setHeight(container.clientHeight);
+        canvas.renderAll();
       });
-      (canvas as { on: (event: string, cb: () => void) => void }).on('path:created', () => {
-        if (isRemoteUpdate.current) return;
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
-          const json = JSON.stringify((canvas as { toJSON: () => unknown }).toJSON());
-          socket?.emit('whiteboard-update', { roomId, canvasJSON: json });
-        }, 100);
-      });
+      ro.observe(container);
+
+      setReady(true);
+
+      // Request existing canvas state from server
+      socket.emit('request-whiteboard-state', roomId);
+
+      return ro;
     };
 
-    initFabric();
+    let ro: ResizeObserver | undefined;
+    init().then((r) => { ro = r; });
 
-    if (socket) {
-      socket.on('whiteboard-state', ({ canvasJSON }: { canvasJSON: string }) => {
-        if (!fabricRef.current) return;
-        isRemoteUpdate.current = true;
-        (fabricRef.current as { loadFromJSON: (json: string, cb: () => void) => void })
-          .loadFromJSON(canvasJSON, () => {
-            (fabricRef.current as { renderAll: () => void }).renderAll();
-            isRemoteUpdate.current = false;
-          });
-      });
-    }
+    const handleState = async ({ canvasJSON }: { canvasJSON: string }) => {
+      if (!fabricRef.current) return;
+      await applyJSON(fabricRef.current, canvasJSON);
+    };
+    socket.on('whiteboard-state', handleState);
 
     return () => {
-      if (canvas) (canvas as { dispose: () => void }).dispose();
-      socket?.off('whiteboard-state');
+      ro?.disconnect();
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      socket.off('whiteboard-state', handleState);
+      canvas?.dispose();
+      fabricRef.current = null;
     };
-  }, [roomId, socket]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, roomId]);
+
+  const applyTool = useCallback((t: EmbedTool) => {
+    setTool(t);
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+    if (t === 'pen') { canvas.isDrawingMode = true; canvas.freeDrawingBrush.color = color; canvas.freeDrawingBrush.width = stroke; }
+    else if (t === 'eraser') { canvas.isDrawingMode = true; canvas.freeDrawingBrush.color = EMBED_BG; canvas.freeDrawingBrush.width = stroke * 5; }
+    else { canvas.isDrawingMode = false; }
+  }, [color, stroke]);
+
+  const applyColor = useCallback((c: string) => {
+    setColor(c);
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+    if (tool === 'pen') canvas.freeDrawingBrush.color = c;
+  }, [tool]);
+
+  const addShape = useCallback(async (t: EmbedTool) => {
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+    const fm = await import('fabric');
+    const cx = canvas.width / 2; const cy = canvas.height / 2;
+    const base = { left: cx - 50, top: cy - 35, stroke: color, strokeWidth: stroke, fill: 'transparent', selectable: true };
+    let obj: unknown;
+    if (t === 'rect') obj = new (fm.Rect as unknown as new (o: object) => unknown)({ ...base, width: 100, height: 70 });
+    else if (t === 'circle') obj = new (fm.Circle as unknown as new (o: object) => unknown)({ ...base, radius: 40 });
+    else if (t === 'line') obj = new (fm.Line as unknown as new (p: number[], o: object) => unknown)([cx - 50, cy, cx + 50, cy], { ...base });
+    else if (t === 'text') obj = new (fm.IText as unknown as new (s: string, o: object) => unknown)('Type here', { ...base, fill: color, stroke: undefined, fontSize: 18 });
+    if (obj) { canvas.add(obj); canvas.requestRenderAll(); saveHist(canvas); emitUpdate(canvas); }
+  }, [color, stroke, saveHist, emitUpdate]);
+
+  const handleTool = useCallback((t: EmbedTool) => {
+    applyTool(t);
+    if (t !== 'pen' && t !== 'eraser') addShape(t);
+  }, [applyTool, addShape]);
+
+  const undo = useCallback(async () => {
+    const canvas = fabricRef.current;
+    if (!canvas || historyIdxRef.current <= 0) return;
+    historyIdxRef.current--;
+    await applyJSON(canvas, historyRef.current[historyIdxRef.current]);
+    emitUpdate(canvas);
+  }, [applyJSON, emitUpdate]);
+
+  const redo = useCallback(async () => {
+    const canvas = fabricRef.current;
+    if (!canvas || historyIdxRef.current >= historyRef.current.length - 1) return;
+    historyIdxRef.current++;
+    await applyJSON(canvas, historyRef.current[historyIdxRef.current]);
+    emitUpdate(canvas);
+  }, [applyJSON, emitUpdate]);
+
+  const clearCanvas = useCallback(() => {
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+    canvas.clear(); canvas.set({ backgroundColor: EMBED_BG }); canvas.renderAll();
+    historyRef.current = []; historyIdxRef.current = -1;
+    emitUpdate(canvas);
+  }, [emitUpdate]);
+
+  const download = useCallback(() => {
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+    const url = canvas.toDataURL({ format: 'png', quality: 1 });
+    const a = document.createElement('a'); a.href = url; a.download = `whiteboard-${roomId}.png`; a.click();
+    toast.success('Downloaded!');
+  }, [roomId]);
+
+  const TOOLS: { id: EmbedTool; icon: React.ReactNode; label: string }[] = [
+    { id: 'pen',    icon: <Pen size={14} />,     label: 'Pen' },
+    { id: 'rect',   icon: <Square size={14} />,   label: 'Rectangle' },
+    { id: 'circle', icon: <Circle size={14} />,   label: 'Circle' },
+    { id: 'line',   icon: <Minus size={14} />,    label: 'Line' },
+    { id: 'text',   icon: <Type size={14} />,     label: 'Text' },
+    { id: 'eraser', icon: <Eraser size={14} />,   label: 'Eraser' },
+  ];
 
   return (
-    <div className="w-full h-full flex items-center justify-center bg-[#0F1117]">
-      <canvas ref={canvasRef} className="w-full h-full" />
+    <div className="flex flex-col h-full bg-[#0F1117] select-none">
+      {/* Mini toolbar */}
+      <div className="h-11 flex items-center gap-2 px-3 border-b border-white/10 bg-[#1A1D2E] shrink-0 flex-wrap">
+        {/* Tools */}
+        <div className="flex items-center gap-0.5">
+          {TOOLS.map((t) => (
+            <Tooltip key={t.id}>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => handleTool(t.id)}
+                  className={`p-1.5 rounded-lg transition-all ${tool === t.id ? 'bg-indigo-500 text-white' : 'text-white/40 hover:bg-white/10 hover:text-white/80'}`}
+                >
+                  {t.icon}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t.label}</TooltipContent>
+            </Tooltip>
+          ))}
+        </div>
+        <div className="w-px h-5 bg-white/10" />
+        {/* Colors */}
+        <div className="flex items-center gap-1">
+          {EMBED_COLORS.map((c) => (
+            <button
+              key={c}
+              onClick={() => applyColor(c)}
+              className={`w-4 h-4 rounded-full border transition-all ${color === c ? 'ring-2 ring-indigo-400 ring-offset-1 ring-offset-[#1A1D2E] scale-125' : 'border-white/20 hover:scale-110'}`}
+              style={{ backgroundColor: c }}
+            />
+          ))}
+        </div>
+        <div className="w-px h-5 bg-white/10" />
+        {/* Stroke */}
+        <input type="range" min={1} max={20} value={stroke} onChange={(e) => { const v = Number(e.target.value); setStroke(v); const canvas = fabricRef.current; if (canvas) canvas.freeDrawingBrush.width = tool === 'eraser' ? v * 5 : v; }} className="w-16 accent-indigo-500" />
+        <div className="w-px h-5 bg-white/10" />
+        {/* Actions */}
+        <div className="flex items-center gap-0.5">
+          <Tooltip><TooltipTrigger asChild><button onClick={undo} className="p-1.5 text-white/40 hover:bg-white/10 hover:text-white/80 rounded-lg transition-colors"><Undo2 size={14} /></button></TooltipTrigger><TooltipContent side="bottom">Undo</TooltipContent></Tooltip>
+          <Tooltip><TooltipTrigger asChild><button onClick={redo} className="p-1.5 text-white/40 hover:bg-white/10 hover:text-white/80 rounded-lg transition-colors"><Redo2 size={14} /></button></TooltipTrigger><TooltipContent side="bottom">Redo</TooltipContent></Tooltip>
+          <Tooltip><TooltipTrigger asChild><button onClick={clearCanvas} className="p-1.5 text-white/40 hover:bg-red-500/20 hover:text-red-400 rounded-lg transition-colors"><Trash2 size={14} /></button></TooltipTrigger><TooltipContent side="bottom">Clear</TooltipContent></Tooltip>
+          <Tooltip><TooltipTrigger asChild><button onClick={download} className="p-1.5 text-white/40 hover:bg-white/10 hover:text-white/80 rounded-lg transition-colors"><Download size={14} /></button></TooltipTrigger><TooltipContent side="bottom">Download</TooltipContent></Tooltip>
+        </div>
+        {!ready && <Loader2 size={13} className="animate-spin text-white/30 ml-auto" />}
+      </div>
+      {/* Canvas */}
+      <div ref={containerRef} className="flex-1 overflow-hidden">
+        <canvas ref={canvasElRef} />
+      </div>
     </div>
   );
 }
