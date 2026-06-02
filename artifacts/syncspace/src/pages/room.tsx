@@ -12,6 +12,7 @@ import {
   Crown, Send, Paperclip, X, ChevronRight, Brain, Loader2,
   Pen, Square, Circle, Minus, Type, Eraser,
   Undo2, Redo2, Trash2, Download,
+  FileText, Maximize2, Minimize2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -76,6 +77,15 @@ export function Room() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const startTime = useRef(Date.now());
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const notesDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [speakingUsers, setSpeakingUsers] = useState<Set<string>>(new Set());
+  const [pinnedPeerId, setPinnedPeerId] = useState<string | null>(null);
+  const [showNotes, setShowNotes] = useState(false);
+  const [notes, setNotes] = useState('');
+  const [notesSaved, setNotesSaved] = useState<Date | null>(null);
 
   const aiSummarize = useAiSummarize();
   const aiAsk = useAiAsk();
@@ -211,6 +221,62 @@ export function Room() {
           setScreenSharer(null);
         });
 
+        // Active speaker — remote peers
+        socket.on('speaker-changed', ({ userId, active }: { userId: number; active: boolean }) => {
+          setSpeakingUsers((prev) => {
+            const s = new Set(prev);
+            const entry = [...peersRef.current.entries()].find(([, p]) => p.userId === userId);
+            if (entry) { if (active) s.add(entry[0]); else s.delete(entry[0]); }
+            return s;
+          });
+        });
+
+        // Collaborative notes
+        socket.on('notes-state', ({ notes: incoming }: { notes: string }) => {
+          setNotes(incoming);
+          setNotesSaved(new Date());
+        });
+
+        // Web Audio API — detect local speaking and broadcast it
+        try {
+          const ACtx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+          const audioCtx = new ACtx();
+          audioCtxRef.current = audioCtx;
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 256;
+          audioCtx.createMediaStreamSource(stream).connect(analyser);
+          const data = new Uint8Array(analyser.frequencyBinCount);
+          let prevSpeaking = false;
+          let silenceCount = 0;
+
+          const tick = () => {
+            if (!mounted) return;
+            analyser.getByteFrequencyData(data);
+            const avg = data.slice(0, 20).reduce((a: number, b: number) => a + b, 0) / 20;
+            const isSpeakingNow = avg > 18;
+
+            if (isSpeakingNow && !prevSpeaking) {
+              prevSpeaking = true;
+              silenceCount = 0;
+              socket.emit('speaking-active', { roomId, userId: user?.id ?? 0, active: true });
+              setSpeakingUsers((s) => new Set([...s, 'local']));
+            } else if (!isSpeakingNow && prevSpeaking) {
+              silenceCount++;
+              if (silenceCount > 18) { // ~300 ms buffer before marking silent
+                prevSpeaking = false;
+                socket.emit('speaking-active', { roomId, userId: user?.id ?? 0, active: false });
+                setSpeakingUsers((s) => { const n = new Set(s); n.delete('local'); return n; });
+              }
+            } else if (isSpeakingNow) {
+              silenceCount = 0;
+            }
+            rafRef.current = requestAnimationFrame(tick);
+          };
+          tick();
+        } catch {
+          // AudioContext unavailable (e.g. no mic granted yet) — skip detection
+        }
+
       } catch (err) {
         if (!mounted) return;
         toast.error('Could not access camera/microphone');
@@ -222,6 +288,9 @@ export function Room() {
 
     return () => {
       mounted = false;
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      audioCtxRef.current?.close().catch(() => {});
+      if (notesDebounceRef.current) clearTimeout(notesDebounceRef.current);
       socketRef.current?.emit('leave-room', roomId);
       socketRef.current?.disconnect();
       localStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -362,10 +431,22 @@ export function Room() {
     );
   };
 
+  const handleNotesChange = (val: string) => {
+    setNotes(val);
+    if (notesDebounceRef.current) clearTimeout(notesDebounceRef.current);
+    notesDebounceRef.current = setTimeout(() => {
+      socketRef.current?.emit('notes-update', { roomId, notes: val });
+      setNotesSaved(new Date());
+    }, 500);
+  };
+
   const allVideoSources = [
     { peerId: 'local', stream: localStreamRef.current, userName: user?.name ?? 'You', isLocal: true },
     ...peers.map((p) => ({ peerId: p.peerId, stream: p.stream, userName: p.userName, isLocal: false })),
   ];
+
+  const pinnedSource = pinnedPeerId ? allVideoSources.find((s) => s.peerId === pinnedPeerId) ?? null : null;
+  const unpinnedSources = pinnedPeerId ? allVideoSources.filter((s) => s.peerId !== pinnedPeerId) : [];
 
   const gridCols = allVideoSources.length <= 1 ? 'grid-cols-1' : allVideoSources.length <= 2 ? 'grid-cols-2' : allVideoSources.length <= 4 ? 'grid-cols-2' : 'grid-cols-3';
 
@@ -404,19 +485,59 @@ export function Room() {
 
         {/* Video grid */}
         <div className="flex-1 p-3 overflow-hidden">
-          <div className={`grid ${gridCols} gap-3 h-full`}>
-            {allVideoSources.slice(0, 8).map(({ peerId, stream, userName, isLocal }) => (
-              <VideoTile
-                key={peerId}
-                stream={stream}
-                userName={userName}
-                isLocal={isLocal}
-                isMuted={isLocal && isMuted}
-                isVideoOff={isLocal && isVideoOff}
-                localVideoRef={isLocal ? localVideoRef : undefined}
-              />
-            ))}
-          </div>
+          {pinnedSource ? (
+            /* Spotlight layout — pinned tile + strip of others */
+            <div className="flex gap-3 h-full">
+              <div className="flex-1 min-w-0">
+                <VideoTile
+                  stream={pinnedSource.stream}
+                  userName={pinnedSource.userName}
+                  isLocal={pinnedSource.isLocal}
+                  isMuted={pinnedSource.isLocal && isMuted}
+                  isVideoOff={pinnedSource.isLocal && isVideoOff}
+                  localVideoRef={pinnedSource.isLocal ? localVideoRef : undefined}
+                  isSpeaking={speakingUsers.has(pinnedSource.peerId)}
+                  isPinned
+                  onPin={() => setPinnedPeerId(null)}
+                />
+              </div>
+              {unpinnedSources.length > 0 && (
+                <div className="w-44 flex flex-col gap-2 overflow-y-auto shrink-0">
+                  {unpinnedSources.map(({ peerId, stream, userName, isLocal }) => (
+                    <div key={peerId} className="aspect-video shrink-0">
+                      <VideoTile
+                        stream={stream}
+                        userName={userName}
+                        isLocal={isLocal}
+                        isMuted={isLocal && isMuted}
+                        isVideoOff={isLocal && isVideoOff}
+                        localVideoRef={isLocal ? localVideoRef : undefined}
+                        isSpeaking={speakingUsers.has(peerId)}
+                        onPin={() => setPinnedPeerId(peerId)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Normal grid */
+            <div className={`grid ${gridCols} gap-3 h-full`}>
+              {allVideoSources.slice(0, 8).map(({ peerId, stream, userName, isLocal }) => (
+                <VideoTile
+                  key={peerId}
+                  stream={stream}
+                  userName={userName}
+                  isLocal={isLocal}
+                  isMuted={isLocal && isMuted}
+                  isVideoOff={isLocal && isVideoOff}
+                  localVideoRef={isLocal ? localVideoRef : undefined}
+                  isSpeaking={speakingUsers.has(peerId)}
+                  onPin={() => setPinnedPeerId(peerId)}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Controls bar */}
@@ -457,7 +578,7 @@ export function Room() {
             <div className="w-px h-6 bg-white/10 mx-1" />
             <ControlBtn
               active={showChat}
-              onClick={() => { setShowChat((c) => !c); setShowParticipants(false); setShowAI(false); }}
+              onClick={() => { setShowChat((c) => !c); setShowParticipants(false); setShowAI(false); setShowNotes(false); }}
               icon={<MessageSquare size={18} />}
               label="Chat"
               badge={chatMessages.length > 0 ? chatMessages.length : undefined}
@@ -465,7 +586,7 @@ export function Room() {
             />
             <ControlBtn
               active={showParticipants}
-              onClick={() => { setShowParticipants((p) => !p); setShowChat(false); setShowAI(false); }}
+              onClick={() => { setShowParticipants((p) => !p); setShowChat(false); setShowAI(false); setShowNotes(false); }}
               icon={<Users size={18} />}
               label="Participants"
               testId="button-toggle-participants"
@@ -479,10 +600,17 @@ export function Room() {
             />
             <ControlBtn
               active={showAI}
-              onClick={() => { setShowAI((a) => !a); setShowChat(false); setShowParticipants(false); }}
+              onClick={() => { setShowAI((a) => !a); setShowChat(false); setShowParticipants(false); setShowNotes(false); }}
               icon={<Brain size={18} />}
               label="AI Assistant"
               testId="button-toggle-ai"
+            />
+            <ControlBtn
+              active={showNotes}
+              onClick={() => { setShowNotes((n) => !n); setShowChat(false); setShowParticipants(false); setShowAI(false); }}
+              icon={<FileText size={18} />}
+              label="Meeting Notes"
+              testId="button-toggle-notes"
             />
             <div className="w-px h-6 bg-white/10 mx-1" />
             <button
@@ -657,6 +785,39 @@ export function Room() {
             </div>
           </motion.div>
         )}
+
+        {showNotes && (
+          <motion.div
+            key="notes"
+            initial={{ x: 320, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 320, opacity: 0 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="w-80 bg-[#1A1D2E] border-l border-white/10 flex flex-col shrink-0"
+          >
+            <div className="p-4 border-b border-white/10 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileText size={16} className="text-indigo-400" />
+                <h3 className="font-semibold text-sm">Meeting Notes</h3>
+              </div>
+              <button onClick={() => setShowNotes(false)} className="text-white/40 hover:text-white/80"><X size={16} /></button>
+            </div>
+            <div className="flex-1 p-3 flex flex-col gap-2 min-h-0">
+              <textarea
+                value={notes}
+                onChange={(e) => handleNotesChange(e.target.value)}
+                placeholder="Shared meeting notes — visible to everyone in the room. Type action items, decisions, key points..."
+                className="flex-1 resize-none bg-white/5 border border-white/10 rounded-lg p-3 text-sm text-white/80 placeholder:text-white/20 focus:outline-none focus:border-indigo-500/50 leading-relaxed min-h-0 font-mono"
+                data-testid="input-notes"
+              />
+              <p className="text-xs text-white/25 text-right shrink-0">
+                {notesSaved
+                  ? `Saved at ${notesSaved.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                  : 'Changes save automatically'}
+              </p>
+            </div>
+          </motion.div>
+        )}
       </AnimatePresence>
 
       {/* Whiteboard iframe overlay */}
@@ -684,13 +845,16 @@ export function Room() {
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
-function VideoTile({ stream, userName, isLocal, isMuted, isVideoOff, localVideoRef }: {
+function VideoTile({ stream, userName, isLocal, isMuted, isVideoOff, localVideoRef, isSpeaking, isPinned, onPin }: {
   stream?: MediaStream | null;
   userName: string;
   isLocal: boolean;
   isMuted: boolean;
   isVideoOff: boolean;
   localVideoRef?: React.RefObject<HTMLVideoElement | null>;
+  isSpeaking?: boolean;
+  isPinned?: boolean;
+  onPin?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const ref = localVideoRef ?? videoRef;
@@ -702,28 +866,53 @@ function VideoTile({ stream, userName, isLocal, isMuted, isVideoOff, localVideoR
   }, [stream, isLocal, ref]);
 
   return (
-    <div className="relative rounded-2xl overflow-hidden bg-[#1A1D2E] border border-white/10 aspect-video flex items-center justify-center group">
+    <div
+      className={`relative rounded-2xl overflow-hidden bg-[#1A1D2E] aspect-video flex items-center justify-center group transition-all duration-150 ${
+        isSpeaking
+          ? 'border-2 border-indigo-400 shadow-[0_0_20px_3px_rgba(99,102,241,0.4)]'
+          : 'border border-white/10'
+      }`}
+    >
       {isVideoOff || (!stream && !isLocal) ? (
         <div className="flex flex-col items-center gap-2">
-          <div className="w-16 h-16 rounded-full bg-indigo-500/20 flex items-center justify-center text-2xl font-bold text-indigo-300">
+          <div className={`w-16 h-16 rounded-full bg-indigo-500/20 flex items-center justify-center text-2xl font-bold text-indigo-300 transition-all duration-150 ${isSpeaking ? 'ring-4 ring-indigo-400/30 scale-110' : ''}`}>
             {userName.charAt(0).toUpperCase()}
           </div>
           <span className="text-sm text-white/40">{userName}</span>
         </div>
       ) : (
-        <video
-          ref={ref}
-          autoPlay
-          muted={isLocal}
-          playsInline
-          className="w-full h-full object-cover"
-        />
+        <video ref={ref} autoPlay muted={isLocal} playsInline className="w-full h-full object-cover" />
       )}
+
+      {/* Live speaking waveform indicator */}
+      {isSpeaking && (
+        <div className="absolute top-2 right-2 flex items-end gap-px">
+          {[4, 7, 5, 9, 6].map((h, i) => (
+            <div
+              key={i}
+              className="w-0.5 bg-indigo-400 rounded-full animate-pulse"
+              style={{ height: `${h}px`, animationDelay: `${i * 0.12}s`, animationDuration: '0.6s' }}
+            />
+          ))}
+        </div>
+      )}
+
       {/* Name badge */}
-      <div className="absolute bottom-3 left-3 flex items-center gap-2 bg-black/50 backdrop-blur-sm rounded-md px-2 py-1">
+      <div className="absolute bottom-3 left-3 flex items-center gap-2 bg-black/60 backdrop-blur-sm rounded-md px-2 py-1">
         {isMuted && <MicOff size={11} className="text-red-400" />}
         <span className="text-xs text-white font-medium">{isLocal ? `${userName} (You)` : userName}</span>
       </div>
+
+      {/* Pin / Unpin button — appears on hover */}
+      {onPin && (
+        <button
+          onClick={onPin}
+          title={isPinned ? 'Exit spotlight' : 'Pin to spotlight'}
+          className="absolute top-2 left-2 p-1.5 rounded-lg bg-black/60 backdrop-blur-sm text-white/50 hover:text-white hover:bg-black/80 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+        >
+          {isPinned ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+        </button>
+      )}
     </div>
   );
 }

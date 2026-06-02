@@ -13,6 +13,7 @@ interface RoomUser {
 
 const roomUsers = new Map<string, Map<string, RoomUser>>();
 const roomWhiteboards = new Map<string, string>(); // roomId → latest canvasJSON
+const roomNotes = new Map<string, string>();       // roomId → latest shared notes
 
 export function initSocket(httpServer: HttpServer): SocketServer {
   const io = new SocketServer(httpServer, {
@@ -81,6 +82,12 @@ export function initSocket(httpServer: HttpServer): SocketServer {
         socket.emit("whiteboard-state", { canvasJSON: existingCanvas });
       }
 
+      // Replay shared meeting notes
+      const existingNotes = roomNotes.get(roomId);
+      if (existingNotes) {
+        socket.emit("notes-state", { notes: existingNotes });
+      }
+
       socket.to(roomId).emit("user-joined-notify", { userId, userName, socketId: socket.id });
     });
 
@@ -124,6 +131,17 @@ export function initSocket(httpServer: HttpServer): SocketServer {
       if (existing) {
         socket.emit("whiteboard-state", { canvasJSON: existing });
       }
+    });
+
+    // Active speaker detection — broadcast to rest of room
+    socket.on("speaking-active", (data: { roomId: string; userId: number; active: boolean }) => {
+      socket.to(data.roomId).emit("speaker-changed", { userId: data.userId, active: data.active });
+    });
+
+    // Collaborative meeting notes — store + broadcast
+    socket.on("notes-update", (data: { roomId: string; notes: string }) => {
+      roomNotes.set(data.roomId, data.notes);
+      socket.to(data.roomId).emit("notes-state", { notes: data.notes });
     });
 
     socket.on("hand-raise", (data: { roomId: string; userId: number; userName: string }) => {
