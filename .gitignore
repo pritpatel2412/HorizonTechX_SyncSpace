@@ -58,3 +58,11 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+.replit-artifact/
+replit.md
+
+# Local Agents
+.agents/
+
+# Assets
+attached_assets/

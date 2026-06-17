@@ -174,13 +174,15 @@ export function Room() {
           setParticipants(users);
           users.forEach((u) => {
             if (u.socketId === socket.id) return;
+            if (u.userId === 999 || u.socketId.startsWith('bot-')) return; // Bypass bot WebRTC peer
             const conn = createPeer(u.socketId, stream, true, u.userName, u.userId);
             peersRef.current.set(u.socketId, conn);
             setPeers((prev) => [...prev, conn]);
           });
         });
 
-        socket.on('user-joined', ({ signal, callerID, userName }: { signal: unknown; callerID: string; userName: string }) => {
+        socket.on('user-joined', ({ signal, callerID, userName, userId, isBot }: { signal: unknown; callerID: string; userName: string; userId?: number; isBot?: boolean }) => {
+          if (userId === 999 || callerID.startsWith('bot-') || isBot) return; // Bypass bot WebRTC peer
           if (peersRef.current.has(callerID)) return;
           const conn = createPeer(callerID, stream, false, userName, 0, signal);
           peersRef.current.set(callerID, conn);
@@ -191,11 +193,18 @@ export function Room() {
           peersRef.current.get(id)?.peer.signal(signal as Peer.SignalData);
         });
 
-        socket.on('user-joined-notify', ({ userName }: { userName: string }) => {
+        socket.on('user-joined-notify', ({ userName, userId, socketId }: { userName: string; userId?: number; socketId?: string }) => {
           toast(`${userName} joined the meeting`, { icon: '👋', duration: 3000 });
+          if (socketId && userId) {
+            setParticipants((prev) => {
+              if (prev.some((p) => p.socketId === socketId)) return prev;
+              return [...prev, { socketId, userId, userName }];
+            });
+          }
         });
 
         socket.on('user-left', ({ socketId }: { socketId: string }) => {
+          setParticipants((prev) => prev.filter((p) => p.socketId !== socketId));
           const conn = peersRef.current.get(socketId);
           if (conn) {
             conn.peer.destroy();
@@ -208,7 +217,7 @@ export function Room() {
           setChatMessages((prev) => [...prev, msg]);
         });
 
-        socket.on('hand-raised', ({ userName }: { userName: string }) => {
+        socket.on('hand-raised', ({ userName, userId }: { userName: string; userId?: number }) => {
           toast(`${userName} raised their hand`, { icon: '✋', duration: 4000 });
         });
 
@@ -225,8 +234,13 @@ export function Room() {
         socket.on('speaker-changed', ({ userId, active }: { userId: number; active: boolean }) => {
           setSpeakingUsers((prev) => {
             const s = new Set(prev);
-            const entry = [...peersRef.current.entries()].find(([, p]) => p.userId === userId);
-            if (entry) { if (active) s.add(entry[0]); else s.delete(entry[0]); }
+            if (userId === 999) {
+              const botSocketId = `bot-${roomId}`;
+              if (active) s.add(botSocketId); else s.delete(botSocketId);
+            } else {
+              const entry = [...peersRef.current.entries()].find(([, p]) => p.userId === userId);
+              if (entry) { if (active) s.add(entry[0]); else s.delete(entry[0]); }
+            }
             return s;
           });
         });
@@ -441,8 +455,11 @@ export function Room() {
   };
 
   const allVideoSources = [
-    { peerId: 'local', stream: localStreamRef.current, userName: user?.name ?? 'You', isLocal: true },
-    ...peers.map((p) => ({ peerId: p.peerId, stream: p.stream, userName: p.userName, isLocal: false })),
+    { peerId: 'local', stream: localStreamRef.current, userName: user?.name ?? 'You', isLocal: true, isBot: false },
+    ...peers.map((p) => ({ peerId: p.peerId, stream: p.stream, userName: p.userName, isLocal: false, isBot: false })),
+    ...participants
+      .filter((p) => p.userId === 999 || p.socketId.startsWith('bot-'))
+      .map((p) => ({ peerId: p.socketId, stream: null, userName: p.userName, isLocal: false, isBot: true })),
   ];
 
   const pinnedSource = pinnedPeerId ? allVideoSources.find((s) => s.peerId === pinnedPeerId) ?? null : null;
@@ -499,11 +516,12 @@ export function Room() {
                   isSpeaking={speakingUsers.has(pinnedSource.peerId)}
                   isPinned
                   onPin={() => setPinnedPeerId(null)}
+                  isBot={pinnedSource.isBot}
                 />
               </div>
               {unpinnedSources.length > 0 && (
                 <div className="w-44 flex flex-col gap-2 overflow-y-auto shrink-0">
-                  {unpinnedSources.map(({ peerId, stream, userName, isLocal }) => (
+                  {unpinnedSources.map(({ peerId, stream, userName, isLocal, isBot }) => (
                     <div key={peerId} className="aspect-video shrink-0">
                       <VideoTile
                         stream={stream}
@@ -514,6 +532,7 @@ export function Room() {
                         localVideoRef={isLocal ? localVideoRef : undefined}
                         isSpeaking={speakingUsers.has(peerId)}
                         onPin={() => setPinnedPeerId(peerId)}
+                        isBot={isBot}
                       />
                     </div>
                   ))}
@@ -523,7 +542,7 @@ export function Room() {
           ) : (
             /* Normal grid */
             <div className={`grid ${gridCols} gap-3 h-full`}>
-              {allVideoSources.slice(0, 8).map(({ peerId, stream, userName, isLocal }) => (
+              {allVideoSources.slice(0, 8).map(({ peerId, stream, userName, isLocal, isBot }) => (
                 <VideoTile
                   key={peerId}
                   stream={stream}
@@ -534,6 +553,7 @@ export function Room() {
                   localVideoRef={isLocal ? localVideoRef : undefined}
                   isSpeaking={speakingUsers.has(peerId)}
                   onPin={() => setPinnedPeerId(peerId)}
+                  isBot={isBot}
                 />
               ))}
             </div>
@@ -725,6 +745,28 @@ export function Room() {
                 ))}
               </div>
             </ScrollArea>
+            <div className="p-3 border-t border-white/10 bg-white/[0.02] flex flex-col gap-2 shrink-0">
+              {participants.some((p) => p.userId === 999) ? (
+                <Button
+                  onClick={() => socketRef.current?.emit('leave-bot', roomId)}
+                  variant="destructive"
+                  className="w-full flex items-center justify-center gap-2 py-5 text-sm"
+                  data-testid="button-dismiss-bot"
+                >
+                  <X size={14} />
+                  Dismiss SyncBot
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => socketRef.current?.emit('add-bot', roomId)}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center gap-2 py-5 text-sm"
+                  data-testid="button-invite-bot"
+                >
+                  <Brain size={14} />
+                  Invite SyncBot (AI)
+                </Button>
+              )}
+            </div>
           </motion.div>
         )}
 
@@ -845,7 +887,7 @@ export function Room() {
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
-function VideoTile({ stream, userName, isLocal, isMuted, isVideoOff, localVideoRef, isSpeaking, isPinned, onPin }: {
+function VideoTile({ stream, userName, isLocal, isMuted, isVideoOff, localVideoRef, isSpeaking, isPinned, onPin, isBot }: {
   stream?: MediaStream | null;
   userName: string;
   isLocal: boolean;
@@ -855,15 +897,16 @@ function VideoTile({ stream, userName, isLocal, isMuted, isVideoOff, localVideoR
   isSpeaking?: boolean;
   isPinned?: boolean;
   onPin?: () => void;
+  isBot?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const ref = localVideoRef ?? videoRef;
 
   useEffect(() => {
-    if (!isLocal && stream && ref.current) {
+    if (!isLocal && !isBot && stream && ref.current) {
       ref.current.srcObject = stream;
     }
-  }, [stream, isLocal, ref]);
+  }, [stream, isLocal, isBot, ref]);
 
   return (
     <div
@@ -873,7 +916,52 @@ function VideoTile({ stream, userName, isLocal, isMuted, isVideoOff, localVideoR
           : 'border border-white/10'
       }`}
     >
-      {isVideoOff || (!stream && !isLocal) ? (
+      {isBot ? (
+        <div className="flex flex-col items-center justify-center h-full w-full bg-[#111322] relative overflow-hidden">
+          {/* Animated pulsing background rings */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <motion.div
+              animate={{
+                scale: isSpeaking ? [1, 1.4, 1] : [1, 1.1, 1],
+                opacity: isSpeaking ? [0.15, 0.4, 0.15] : [0.05, 0.15, 0.05],
+              }}
+              transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+              className="w-48 h-48 rounded-full bg-indigo-500/20 absolute"
+            />
+            <motion.div
+              animate={{
+                scale: isSpeaking ? [1, 1.8, 1] : [1, 1.2, 1],
+                opacity: isSpeaking ? [0.08, 0.25, 0.08] : [0.02, 0.08, 0.02],
+              }}
+              transition={{ repeat: Infinity, duration: 3, ease: "easeInOut", delay: 0.5 }}
+              className="w-64 h-64 rounded-full bg-purple-500/20 absolute"
+            />
+          </div>
+          
+          {/* Central AI Orb */}
+          <div className="relative z-10 flex flex-col items-center gap-3">
+            <motion.div
+              animate={{
+                scale: isSpeaking ? [1, 1.15, 0.95, 1.05, 1] : [1, 1.05, 1],
+                rotate: [0, 90, 180, 270, 360],
+              }}
+              transition={{
+                scale: { repeat: Infinity, duration: 1.5, ease: "easeInOut" },
+                rotate: { repeat: Infinity, duration: 12, ease: "linear" }
+              }}
+              className="w-16 h-16 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-[0_0_25px_rgba(99,102,241,0.5)]"
+            >
+              <Brain className="text-white w-7 h-7" />
+            </motion.div>
+            <div className="text-center">
+              <span className="text-xs font-semibold bg-gradient-to-r from-indigo-300 via-purple-300 to-pink-300 bg-clip-text text-transparent">SyncBot (AI)</span>
+              {isSpeaking && (
+                <p className="text-[10px] text-indigo-300/80 animate-pulse mt-0.5">Thinking...</p>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : isVideoOff || (!stream && !isLocal) ? (
         <div className="flex flex-col items-center gap-2">
           <div className={`w-16 h-16 rounded-full bg-indigo-500/20 flex items-center justify-center text-2xl font-bold text-indigo-300 transition-all duration-150 ${isSpeaking ? 'ring-4 ring-indigo-400/30 scale-110' : ''}`}>
             {userName.charAt(0).toUpperCase()}
