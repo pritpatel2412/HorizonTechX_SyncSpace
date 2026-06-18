@@ -30,8 +30,8 @@ type FabricCanvas = {
   requestRenderAll: () => void;
 };
 
-const COLORS = ['#E2E8F0', '#6366F1', '#10B981', '#EF4444', '#F59E0B', '#3B82F6', '#EC4899', '#1A1D2E'];
-const BG_COLOR = '#1A1D2E';
+const COLORS = ['#E2E8F0', '#57c1ff', '#59d499', '#ff6161', '#ffc533', '#cdcdcd', '#6a6b6c', '#0d0d0d'];
+const BG_COLOR = '#0d0d0d';
 
 export function Whiteboard() {
   const { roomId } = useParams<{ roomId: string }>();
@@ -313,38 +313,38 @@ export function Whiteboard() {
   }, [roomId]);
 
   const tools: { id: Tool; icon: React.ReactNode; label: string }[] = [
-    { id: 'pen', icon: <Pen size={16} />, label: 'Pen' },
-    { id: 'rect', icon: <Square size={16} />, label: 'Rectangle (click to add)' },
-    { id: 'circle', icon: <Circle size={16} />, label: 'Circle (click to add)' },
-    { id: 'line', icon: <Minus size={16} />, label: 'Line (click to add)' },
-    { id: 'text', icon: <Type size={16} />, label: 'Text (click to add)' },
-    { id: 'eraser', icon: <Eraser size={16} />, label: 'Eraser' },
+    { id: 'pen', icon: <Pen size={14} />, label: 'Pen' },
+    { id: 'rect', icon: <Square size={14} />, label: 'Rectangle (click to add)' },
+    { id: 'circle', icon: <Circle size={14} />, label: 'Circle (click to add)' },
+    { id: 'line', icon: <Minus size={14} />, label: 'Line (click to add)' },
+    { id: 'text', icon: <Type size={14} />, label: 'Text (click to add)' },
+    { id: 'eraser', icon: <Eraser size={14} />, label: 'Eraser' },
   ];
 
   return (
-    <div className="dark flex flex-col h-screen bg-[#0F1117] text-[#E2E8F0] overflow-hidden select-none">
+    <div className="dark flex flex-col h-screen bg-[#07080a] text-[#cdcdcd] overflow-hidden select-none selection:bg-white/10 selection:text-white">
       {/* Toolbar */}
-      <div className="h-14 flex items-center gap-3 px-4 border-b border-white/10 bg-[#1A1D2E] shrink-0 flex-wrap">
+      <div className="h-14 flex items-center gap-3 px-4 border-b border-[#242728] bg-[#07080a] shrink-0 flex-wrap">
         <Link
-          href={roomId ? `/room/${roomId}` : '/'}
-          className="flex items-center gap-1.5 text-white/40 hover:text-white/80 transition-colors text-sm shrink-0"
+          href={roomId ? `/room/${roomId}` : '/dashboard'}
+          className="flex items-center gap-1.5 text-[#9c9c9d] hover:text-[#f4f4f6] transition-colors text-xs font-semibold shrink-0"
         >
           <ChevronLeft size={16} />
           Back
         </Link>
-        <div className="w-px h-6 bg-white/10 shrink-0" />
+        <div className="w-px h-6 bg-[#242728] shrink-0" />
 
-        {/* Tools */}
-        <div className="flex items-center gap-0.5">
+        {/* Tools - Segmented tab styling */}
+        <div className="flex items-center gap-0.5 bg-[#101111] border border-[#242728] p-0.5 rounded-[8px]">
           {tools.map((t) => (
             <Tooltip key={t.id}>
               <TooltipTrigger asChild>
                 <button
                   onClick={() => handleToolClick(t.id)}
-                  className={`p-2 rounded-lg transition-all ${
+                  className={`p-1.5 rounded-[6px] transition-colors ${
                     activeTool === t.id
-                      ? 'bg-indigo-500 text-white shadow-md shadow-indigo-500/30'
-                      : 'text-white/40 hover:bg-white/10 hover:text-white/80'
+                      ? 'bg-[#121212] text-white border border-[#242728]'
+                      : 'text-[#9c9c9d] hover:text-white'
                   }`}
                   data-testid={`button-tool-${t.id}`}
                 >
@@ -356,19 +356,19 @@ export function Whiteboard() {
           ))}
         </div>
 
-        <div className="w-px h-6 bg-white/10 shrink-0" />
+        <div className="w-px h-6 bg-[#242728] shrink-0" />
 
         {/* Colors */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 bg-[#101111] border border-[#242728] p-1.5 rounded-[8px]">
           {COLORS.map((c) => (
             <Tooltip key={c}>
               <TooltipTrigger asChild>
                 <button
                   onClick={() => applyColor(c)}
-                  className={`w-5 h-5 rounded-full transition-all border ${
+                  className={`w-4 h-4 rounded-full transition-all border ${
                     activeColor === c
-                      ? 'ring-2 ring-indigo-400 ring-offset-1 ring-offset-[#1A1D2E] scale-125'
-                      : 'hover:scale-110 border-white/20'
+                      ? 'ring-1 ring-white scale-110 border-white'
+                      : 'hover:scale-105 border-white/10'
                   }`}
                   style={{ backgroundColor: c }}
                   data-testid={`button-color-${c.replace('#', '')}`}
@@ -379,24 +379,24 @@ export function Whiteboard() {
           ))}
         </div>
 
-        <div className="w-px h-6 bg-white/10 shrink-0" />
+        <div className="w-px h-6 bg-[#242728] shrink-0" />
 
         {/* Stroke width */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-white/30 shrink-0">Size</span>
+        <div className="flex items-center gap-2 bg-[#101111] border border-[#242728] px-3 py-1.5 rounded-[8px] h-8">
+          <span className="text-[11px] text-[#6a6b6c] shrink-0">Size</span>
           <input
             type="range"
             min={1}
             max={30}
             value={strokeWidth}
             onChange={(e) => applyStroke(Number(e.target.value))}
-            className="w-20 accent-indigo-500"
+            className="w-16 accent-white"
             data-testid="input-stroke-size"
           />
-          <span className="text-xs text-white/40 w-5 text-right">{strokeWidth}</span>
+          <span className="text-[11px] text-[#9c9c9d] w-4 text-right font-mono">{strokeWidth}</span>
         </div>
 
-        <div className="w-px h-6 bg-white/10 shrink-0" />
+        <div className="w-px h-6 bg-[#242728] shrink-0" />
 
         {/* Actions */}
         <div className="flex items-center gap-0.5">
@@ -404,10 +404,10 @@ export function Whiteboard() {
             <TooltipTrigger asChild>
               <button
                 onClick={undo}
-                className="p-2 text-white/40 hover:bg-white/10 hover:text-white/80 rounded-lg transition-colors"
+                className="p-2 text-[#9c9c9d] hover:bg-[#121212] hover:text-white rounded-[8px] transition-colors"
                 data-testid="button-undo"
               >
-                <Undo2 size={16} />
+                <Undo2 size={14} />
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">Undo</TooltipContent>
@@ -416,10 +416,10 @@ export function Whiteboard() {
             <TooltipTrigger asChild>
               <button
                 onClick={redo}
-                className="p-2 text-white/40 hover:bg-white/10 hover:text-white/80 rounded-lg transition-colors"
+                className="p-2 text-[#9c9c9d] hover:bg-[#121212] hover:text-white rounded-[8px] transition-colors"
                 data-testid="button-redo"
               >
-                <Redo2 size={16} />
+                <Redo2 size={14} />
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">Redo</TooltipContent>
@@ -428,10 +428,10 @@ export function Whiteboard() {
             <TooltipTrigger asChild>
               <button
                 onClick={clearCanvas}
-                className="p-2 text-white/40 hover:bg-red-500/20 hover:text-red-400 rounded-lg transition-colors"
+                className="p-2 text-[#9c9c9d] hover:bg-[#ff6161]/15 hover:text-[#ff6161] rounded-[8px] transition-colors"
                 data-testid="button-clear"
               >
-                <Trash2 size={16} />
+                <Trash2 size={14} />
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">Clear all</TooltipContent>
@@ -440,10 +440,10 @@ export function Whiteboard() {
             <TooltipTrigger asChild>
               <button
                 onClick={downloadPng}
-                className="p-2 text-white/40 hover:bg-white/10 hover:text-white/80 rounded-lg transition-colors"
+                className="p-2 text-[#9c9c9d] hover:bg-[#121212] hover:text-white rounded-[8px] transition-colors"
                 data-testid="button-download"
               >
-                <Download size={16} />
+                <Download size={14} />
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">Download PNG</TooltipContent>
@@ -451,9 +451,9 @@ export function Whiteboard() {
         </div>
 
         <div className="ml-auto flex items-center gap-3 shrink-0">
-          {!isReady && <Loader2 size={14} className="animate-spin text-white/30" />}
+          {!isReady && <Loader2 size={12} className="animate-spin text-[#6a6b6c]" />}
           {isReady && (
-            <span className="text-xs text-white/30">
+            <span className="text-[11px] text-[#6a6b6c]">
               {connectedUsers} in room · {roomId}
             </span>
           )}
@@ -463,14 +463,14 @@ export function Whiteboard() {
       {/* Canvas container */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-hidden relative"
+        className="flex-1 overflow-hidden relative bg-[#0d0d0d]"
         data-testid="whiteboard-canvas-container"
       >
         {!isReady && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="flex flex-col items-center gap-3 text-white/30">
-              <Loader2 size={32} className="animate-spin" />
-              <span className="text-sm">Loading canvas...</span>
+          <div className="absolute inset-0 flex items-center justify-center bg-[#0d0d0d]">
+            <div className="flex flex-col items-center gap-3 text-[#6a6b6c]">
+              <Loader2 size={24} className="animate-spin text-white" />
+              <span className="text-[12px]">Loading canvas...</span>
             </div>
           </div>
         )}
