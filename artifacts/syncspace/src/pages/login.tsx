@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation, Link } from 'wouter';
 import { useLogin } from '@workspace/api-client-react';
 import { useAuthStore } from '@/store';
@@ -14,8 +14,15 @@ export function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const login = useLogin();
+  const token = useAuthStore((state) => state.token);
   const setToken = useAuthStore((state) => state.setToken);
   const setUser = useAuthStore((state) => state.setUser);
+
+  useEffect(() => {
+    if (token) {
+      setLocation('/dashboard');
+    }
+  }, [token, setLocation]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,7 +30,7 @@ export function Login() {
       onSuccess: (resp) => {
         setToken(resp.token);
         setUser(resp.user);
-        setLocation('/');
+        setLocation('/dashboard');
       },
       onError: () => {
         toast.error('Invalid credentials');

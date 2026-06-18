@@ -87,7 +87,8 @@ export function Whiteboard() {
   useEffect(() => {
     if (!roomId || !token) return;
 
-    const socket = io(window.location.origin, { auth: { token } });
+    const socketUrl = import.meta.env.VITE_API_URL || window.location.origin;
+    const socket = io(socketUrl, { auth: { token } });
     socketRef.current = socket;
 
     let canvas: FabricCanvas | null = null;

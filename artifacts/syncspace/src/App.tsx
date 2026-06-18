@@ -10,20 +10,31 @@ import { Room } from "@/pages/room";
 import { Whiteboard } from "@/pages/whiteboard";
 import { Files } from "@/pages/files";
 import { Settings } from "@/pages/settings";
+import { Landing } from "@/pages/landing";
+import { Terms } from "@/pages/terms";
+import { Privacy } from "@/pages/privacy";
 import { ProtectedRoute } from "@/components/layout/protected-route";
 import { setupApiAuth } from "@/lib/api";
+import { setBaseUrl } from "@workspace/api-client-react";
 import { useEffect } from "react";
 import { useAuthStore } from "@/store";
 
 const queryClient = new QueryClient();
+
+if (import.meta.env.VITE_API_URL) {
+  setBaseUrl(import.meta.env.VITE_API_URL);
+}
 setupApiAuth();
 
 function Router() {
   return (
     <Switch>
+      <Route path="/" component={Landing} />
+      <Route path="/terms" component={Terms} />
+      <Route path="/privacy" component={Privacy} />
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
-      <Route path="/">
+      <Route path="/dashboard">
         <ProtectedRoute>
           <Dashboard />
         </ProtectedRoute>

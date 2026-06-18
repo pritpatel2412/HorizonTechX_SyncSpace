@@ -162,7 +162,8 @@ export function Room() {
           localVideoRef.current.srcObject = stream;
         }
 
-        const socket = io(window.location.origin, { auth: { token } });
+        const socketUrl = import.meta.env.VITE_API_URL || window.location.origin;
+        const socket = io(socketUrl, { auth: { token } });
         socketRef.current = socket;
 
         socket.on('connect', () => {
@@ -395,8 +396,9 @@ export function Room() {
     formData.append('file', file);
     if (roomId) formData.append('roomId', roomId);
 
+    const baseUrl = import.meta.env.VITE_API_URL || '';
     try {
-      const res = await fetch('/api/files/upload', {
+      const res = await fetch(`${baseUrl}/api/files/upload`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
@@ -420,7 +422,7 @@ export function Room() {
 
   const leaveRoom = () => {
     socketRef.current?.emit('leave-room', roomId);
-    setLocation('/');
+    setLocation('/dashboard');
   };
 
   const copyRoomLink = () => {
@@ -673,7 +675,10 @@ export function Room() {
                     </div>
                     <div className="ml-8 text-sm text-white/70 bg-white/5 rounded-lg px-3 py-2 leading-relaxed break-words">
                       {msg.message.includes('/api/files/') ? (
-                        <span dangerouslySetInnerHTML={{ __html: msg.message.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" class="text-indigo-400 underline">$1</a>') }} />
+                        <span dangerouslySetInnerHTML={{ __html: msg.message.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, name, url) => {
+                          const href = url.startsWith('/') ? `${import.meta.env.VITE_API_URL || ''}${url}` : url;
+                          return `<a href="${href}" target="_blank" class="text-indigo-400 underline">${name}</a>`;
+                        }) }} />
                       ) : msg.message}
                     </div>
                   </div>

@@ -36,8 +36,9 @@ export function Files() {
     formData.append('file', file);
 
     const token = localStorage.getItem('syncspace_token');
+    const baseUrl = import.meta.env.VITE_API_URL || '';
     
-    const uploadPromise = fetch('/api/files/upload', {
+    const uploadPromise = fetch(`${baseUrl}/api/files/upload`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`
@@ -137,7 +138,7 @@ export function Files() {
                       </div>
                       <div className="col-span-2 flex justify-end">
                         <Button variant="ghost" size="sm" asChild className="opacity-0 group-hover:opacity-100 transition-opacity" data-testid={`button-download-${file.id}`}>
-                          <a href={`/api/files/${file.fileId}/download`} target="_blank" rel="noreferrer" download>
+                          <a href={`${import.meta.env.VITE_API_URL || ''}/api/files/${file.fileId}`} target="_blank" rel="noreferrer" download>
                             <Download size={16} />
                           </a>
                         </Button>

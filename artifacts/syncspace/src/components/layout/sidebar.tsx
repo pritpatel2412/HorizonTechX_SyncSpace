@@ -7,7 +7,7 @@ export function Sidebar() {
   const logout = useAuthStore((state) => state.logout);
 
   const navItems = [
-    { href: '/', label: 'Home', icon: Home },
+    { href: '/dashboard', label: 'Home', icon: Home },
     { href: '/files', label: 'Files', icon: Folder },
     { href: '/settings', label: 'Settings', icon: Settings },
   ];

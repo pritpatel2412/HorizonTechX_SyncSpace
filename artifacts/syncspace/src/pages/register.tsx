@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation, Link } from 'wouter';
 import { useRegister } from '@workspace/api-client-react';
 import { useAuthStore } from '@/store';
@@ -15,8 +15,15 @@ export function Register() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const register = useRegister();
+  const token = useAuthStore((state) => state.token);
   const setToken = useAuthStore((state) => state.setToken);
   const setUser = useAuthStore((state) => state.setUser);
+
+  useEffect(() => {
+    if (token) {
+      setLocation('/dashboard');
+    }
+  }, [token, setLocation]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,7 +31,7 @@ export function Register() {
       onSuccess: (resp) => {
         setToken(resp.token);
         setUser(resp.user);
-        setLocation('/');
+        setLocation('/dashboard');
       },
       onError: (err) => {
         toast.error('Registration failed');
