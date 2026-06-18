@@ -60,6 +60,8 @@ Thumbs.db
 .local/
 .replit-artifact/
 replit.md
+.replit
+.replitignore
 
 # Local Agents
 .agents/
