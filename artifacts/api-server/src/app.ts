@@ -51,4 +51,12 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 app.use("/api", router);
 
+app.get("/", (req, res) => {
+  res.json({
+    status: "healthy",
+    message: "SyncSpace API Server is running",
+    documentation: "Please use the frontend client application to interact with this service."
+  });
+});
+
 export default app;
